@@ -2,6 +2,7 @@ import re
 from bs4 import BeautifulSoup
 import requests
 from openpyxl import Workbook
+from datetime import date
 
 
 class VolleyBallPage:
@@ -17,6 +18,8 @@ class VolleyBallPage:
     Returns:
         VolleyBallPage: VolleyBallPage Object
     """
+
+    DEFAULT_DATA_SIZE = 4
 
     def __init__(self, url):
         response = requests.get(url)
@@ -59,7 +62,7 @@ class VolleyBallPage:
         table = self.soup.find("tbody")
         return table.find_all("tr", recursive=False)
 
-    def _get_main_team_name(self):
+    def get_main_team_name(self):
         """Gets the name of the main team for tbe website
 
         Raises:
@@ -108,7 +111,7 @@ class VolleyBallPage:
         """
         result = trow.select_one(".score")
         if result is None:
-            if trow.select_one(".last").text.count("In Progress") != 0:
+            if "In Progress" in trow.select_one(".last").text or "Preview Match" in trow.select_one(".last").text:
                 return None
             else:
                 raise TypeError("Data could not be found")
@@ -128,7 +131,7 @@ class VolleyBallPage:
         Returns:
             Array[tuple()]: volleyball data in the format: Winning team / score / Losing team / score
         """
-        our_team = self._get_main_team_name()
+        our_team = self.get_main_team_name()
         return_data = []
 
         for trow in self._get_table_rows():
@@ -142,14 +145,42 @@ class VolleyBallPage:
             else:
                 return_data.append(self._format_match_TBD(our_team, other_team))
         return return_data
+    
 
+class DataWriter:
+    """Represents an excel workbook and has specialized methods for writing volleyball data
+    """
+    def __init__(self) -> None:
+        self.book = Workbook()
+        self.book.remove(self.book.active)
+    
+    
+    def add_volleyball_data(self, team_name, data):
+        """Adds volleyball data to an excel file in the format: Winner / score / loser / score
 
-
+        Args:
+            team_name (str): Name of the main team
+            data (Array(tuple(str, int, str, int))): Volleyball data formatted: Winner / score / loser / score
+        """
+        ws = self.book.create_sheet(team_name)
+        for i, row in enumerate(ws.iter_rows(min_row=1,max_row=len(data),max_col=VolleyBallPage.DEFAULT_DATA_SIZE)):
+            for j, cell in enumerate(row):
+                cell.value = data[i][j]
+    
+    
+    def save(self):
+        """Saves the excel file to disk
+        """
+        book_file_name = f"VolleyballData{date.today().isoformat()}.xlsx"
+        self.book.save(book_file_name)
 
 if __name__ == "__main__":
     URL = "https://www.maxpreps.com/print/schedule.aspx?schoolid=d2a54a52-b1ac-4588-98de-94edd98a7d85&ssid=3a7d2ebb-2ff5-4795-bdaa-58047958bbe9&print=1"
     URL2 = "https://www.maxpreps.com/print/schedule.aspx?schoolid=773627bf-68b2-4c1b-8e1f-d4a6d2513905&ssid=3a7d2ebb-2ff5-4795-bdaa-58047958bbe9&print=1"
     page = VolleyBallPage(URL2)
     # print(get_volleyball_data(page))
-    for datapoint in page.get_volleyball_data():
-        print(datapoint)
+    # for datapoint in page.get_volleyball_data():
+    #     print(datapoint)
+    writer = DataWriter()
+    writer.add_volleyball_data(page.get_main_team_name(), page.get_volleyball_data())
+    writer.save()
