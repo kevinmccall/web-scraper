@@ -3,6 +3,8 @@ from bs4 import BeautifulSoup
 import requests
 from openpyxl import Workbook
 from datetime import date
+from dataclasses import dataclass
+from get_urls import get_volleyball_urls
 
 
 class VolleyBallPage:
@@ -155,14 +157,14 @@ class DataWriter:
         self.book.remove(self.book.active)
     
     
-    def add_volleyball_data(self, team_name, data):
-        """Adds volleyball data to an excel file in the format: Winner / score / loser / score
+    def add_volleyball_data(self, sheet_name, data):
+        """Adds volleyball data to an excel sheet named sheet_name in the format: Winner / score / loser / score
 
         Args:
-            team_name (str): Name of the main team
+            sheet_name (str): Name of the main team
             data (Array(tuple(str, int, str, int))): Volleyball data formatted: Winner / score / loser / score
         """
-        ws = self.book.create_sheet(team_name)
+        ws = self.book.create_sheet(sheet_name)
         for i, row in enumerate(ws.iter_rows(min_row=1,max_row=len(data),max_col=VolleyBallPage.DEFAULT_DATA_SIZE)):
             for j, cell in enumerate(row):
                 cell.value = data[i][j]
@@ -174,13 +176,31 @@ class DataWriter:
         book_file_name = f"VolleyballData{date.today().isoformat()}.xlsx"
         self.book.save(book_file_name)
 
-if __name__ == "__main__":
+
+def main():
+    scores = set()
+    writer = DataWriter()
+    for url in get_volleyball_urls():
+        page = VolleyBallPage(url)
+        for element in page.get_volleyball_data():
+            if isinstance(element, tuple):
+                scores.add(element)
+            else:
+                print(f"invalid value added {element}")
+    writer.add_volleyball_data("VolleyballData", scores)
+    writer.save()
+
+
+def test():
     URL = "https://www.maxpreps.com/print/schedule.aspx?schoolid=d2a54a52-b1ac-4588-98de-94edd98a7d85&ssid=3a7d2ebb-2ff5-4795-bdaa-58047958bbe9&print=1"
     URL2 = "https://www.maxpreps.com/print/schedule.aspx?schoolid=773627bf-68b2-4c1b-8e1f-d4a6d2513905&ssid=3a7d2ebb-2ff5-4795-bdaa-58047958bbe9&print=1"
-    page = VolleyBallPage(URL2)
+    page = VolleyBallPage(URL)
     # print(get_volleyball_data(page))
     # for datapoint in page.get_volleyball_data():
     #     print(datapoint)
     writer = DataWriter()
     writer.add_volleyball_data(page.get_main_team_name(), page.get_volleyball_data())
     writer.save()
+
+if __name__ == "__main__":
+    test()
