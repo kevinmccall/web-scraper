@@ -1,16 +1,16 @@
 import re
+from datetime import date
 from bs4 import BeautifulSoup
 import requests
 from requests.exceptions import ConnectionError, Timeout
 from openpyxl import Workbook
-from datetime import date
+
 
 class DataNotFoundException(Exception):
     pass
 
-INPUT_FILE = 'urls.txt'
 
-
+INPUT_FILE = "urls.txt"
 
 
 class VolleyBallPage:
@@ -73,7 +73,8 @@ class VolleyBallPage:
             other_team (str): the name of the other team
 
         Returns:
-            tuple: formatted in the format: winning team / score / other team / score; scores are placeholders
+            tuple: formatted in the format: winning team / score / other team / score;
+            scores are placeholders
         """
         return (our_team, "Not yet determined", other_team, "Not yet determined")
 
@@ -115,7 +116,9 @@ class VolleyBallPage:
             str: Other team's name
         """
         try:
-            return trow.select_one(".contest-type-indicator").find(text=True, recursive=False)
+            return trow.select_one(".contest-type-indicator").find(
+                text=True, recursive=False
+            )
         except AttributeError as a_e:
             raise DataNotFoundException("Cannot find other team's name") from a_e
 
@@ -131,14 +134,17 @@ class VolleyBallPage:
 
         Returns:
             Returns None if a match is pending
-            tuple(str, int, int): Tuple containing: result (Win, loss, tie) of a team, score of the first team, score of the second team
+            tuple(str, int, int): Tuple containing:
+            result (Win, loss, tie) of a team, score of the first team, score of the second team
         """
         result = trow.select_one(".score")
         if result is None:
             for term in VolleyBallPage.in_progress_terms:
                 if term in trow.select_one(".last").text:
                     return None
-            raise DataNotFoundException(f"Data could not be found and a preview match was not determined. {trow.get_text()}")
+            raise DataNotFoundException(
+                f"Data could not be found and a preview match was not determined. {trow.get_text()}"
+            )
 
         data = VolleyBallPage.result_data_re.match(result.text)
         if not data:
@@ -154,10 +160,12 @@ class VolleyBallPage:
         return match_result, score1, score2
 
     def get_volleyball_data(self):
-        """Returns a list of data from the volleyball website in the format: Winning team / score / Losing team / score
+        """Returns a list of data from the volleyball website in the format:
+         Winning team / score / Losing team / score
 
         Returns:
-            Array[tuple()]: volleyball data in the format: Winning team / score / Losing team / score
+            Array[tuple()]: volleyball data in the format:
+             Winning team / score / Losing team / score
         """
         our_team = self.get_main_team_name()
         return_data = []
@@ -169,7 +177,9 @@ class VolleyBallPage:
                 if row_data is not None:
                     match_result, score1, score2 = row_data
                     return_data.append(
-                        self._format_default(match_result, our_team, other_team, score1, score2)
+                        self._format_default(
+                            match_result, our_team, other_team, score1, score2
+                        )
                     )
                 else:
                     return_data.append(self._format_match_TBD(our_team, other_team))
@@ -179,51 +189,55 @@ class VolleyBallPage:
                 print("skipping...")
                 continue
         return return_data
-    
+
 
 class DataWriter:
-    """Represents an excel workbook and has specialized methods for writing volleyball data
-    """
+    """Represents an excel workbook and has specialized methods for writing volleyball data"""
+
     def __init__(self) -> None:
         self.book = Workbook()
         self.book.remove(self.book.active)
-    
-    
+
     def add_volleyball_data(self, sheet_name, data):
-        """Adds volleyball data to an excel sheet named sheet_name in the format: Winner / score / loser / score
+        """Adds volleyball data to an excel sheet named sheet_name in the format:
+         Winner / score / loser / score
 
         Args:
             sheet_name (str): Name of the main team
-            data (Array(tuple(str, int, str, int))): Volleyball data formatted: Winner / score / loser / score
+            data (Array(tuple(str, int, str, int))):
+            Volleyball data formatted: Winner / score / loser / score
         """
         ws = self.book.create_sheet(sheet_name)
-        for i, row in enumerate(ws.iter_rows(min_row=1,max_row=len(data),max_col=VolleyBallPage.DEFAULT_DATA_SIZE)):
+        for i, row in enumerate(
+            ws.iter_rows(
+                min_row=1, max_row=len(data), max_col=VolleyBallPage.DEFAULT_DATA_SIZE
+            )
+        ):
             for j, cell in enumerate(row):
                 cell.value = data[i][j]
-    
-    
+
     def save(self):
-        """Saves the excel file to disk
-        """
+        """Saves the excel file to disk"""
         book_file_name = f"VolleyballData{date.today().isoformat()}.xlsx"
         self.book.save(book_file_name)
 
 
 def main():
+    """Entrypoint of program"""
     scores = []
     writer = DataWriter()
-    with open(INPUT_FILE, 'r', encoding='utf8') as reader:
+    with open(INPUT_FILE, "r", encoding="utf8") as reader:
         for url in reader:
             url = url.strip()
             try:
                 page = VolleyBallPage(url)
-            except ConnectionError as ce:
+            except ConnectionError as c_e:
                 print(f"Website would not connect: {url}")
-                print(ce)
+                print(c_e)
                 continue
-            except Timeout as te:
+            except Timeout as t_e:
                 print(f"Timed out while trying to connect to website: {url}")
-                print(te)
+                print(t_e)
                 continue
             for element in page.get_volleyball_data():
                 if isinstance(element, tuple):
@@ -232,20 +246,6 @@ def main():
                     print(f"invalid value added {element}")
     writer.add_volleyball_data("VolleyballData", scores)
     writer.save()
-
-
-def test():
-    URL = "https://www.maxpreps.com/print/schedule.aspx?schoolid=d2a54a52-b1ac-4588-98de-94edd98a7d85&ssid=3a7d2ebb-2ff5-4795-bdaa-58047958bbe9&print=1"
-    URL2 = "https://www.maxpreps.com/print/schedule.aspx?schoolid=773627bf-68b2-4c1b-8e1f-d4a6d2513905&ssid=3a7d2ebb-2ff5-4795-bdaa-58047958bbe9&print=1"
-    URL_3 = "https://www.maxpreps.com/print/schedule.aspx?schoolid=a08899b0-2df3-4c44-8225-c83b952f49da&ssid=3a7d2ebb-2ff5-4795-bdaa-58047958bbe9&print=1"
-    page = VolleyBallPage(URL_3)
-    # print(get_volleyball_data(page))
-    # for datapoint in page.get_volleyball_data():
-    #     print(datapoint)
-    writer = DataWriter()
-    writer.add_volleyball_data(page.get_main_team_name(), page.get_volleyball_data())
-    writer.save()
-
 
 
 if __name__ == "__main__":
