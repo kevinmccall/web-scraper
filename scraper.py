@@ -1,6 +1,7 @@
 import re
 from bs4 import BeautifulSoup
 import requests
+from requests.exceptions import ConnectionError, Timeout
 from openpyxl import Workbook
 from datetime import date
 
@@ -8,6 +9,9 @@ class DataNotFoundException(Exception):
     pass
 
 INPUT_FILE = 'urls.txt'
+
+
+
 
 class VolleyBallPage:
     """Class to get data off a volleyball webpage
@@ -23,20 +27,29 @@ class VolleyBallPage:
         VolleyBallPage: VolleyBallPage Object
     """
 
+    result_data_re = re.compile(r"\((\w)\).*(\d).*(\d)")
+    in_progress_terms = ["In Progress", "Preview Match"]
     DEFAULT_DATA_SIZE = 4
 
     def __init__(self, url):
-        response = requests.get(url)
+        try:
+            response = requests.get(url, timeout=20)
+        except Timeout:
+            response = requests.get(url, timeout=20)
         self.soup = BeautifulSoup(response.content, "html.parser")
-        self.result_data_re = re.compile(r"\((\w)\).*(\d).*(\d)")
+        self.url = url
 
     def _format_default(self, match_result, our_team, other_team, score1, score2):
         """
         Helper method to format a regular data row on the volleyball website
 
         Raises:
-            TypeError: Match Result is not "W", "L", or "T"
+            TypeError: Match Result is not "FFW", "FFL", "W", "L", or "T"
         """
+        if match_result == "FFW":
+            return (our_team, "N/A", other_team, "N/A")
+        elif match_result == "FFL":
+            return (other_team, "N/A", our_team, "N/A")
         if match_result == "W":
             our_score = max(score1, score2)
             other_score = min(score1, score2)
@@ -113,8 +126,8 @@ class VolleyBallPage:
             trow (Tag): table row from volleyball website
 
         Raises:
-            TypeError: If that data could not be found
-            TypeError: If the data could not be extracted
+            DataNotFoundException: If that data could not be found
+            DataNotFoundException: If the data could not be extracted
 
         Returns:
             Returns None if a match is pending
@@ -122,13 +135,17 @@ class VolleyBallPage:
         """
         result = trow.select_one(".score")
         if result is None:
-            if "In Progress" in trow.select_one(".last").text or "Preview Match" in trow.select_one(".last").text:
-                return None
-            else:
-                raise DataNotFoundException(f"Data could not be found and a preview match was not determined. {trow.get_text()}")
+            for term in VolleyBallPage.in_progress_terms:
+                if term in trow.select_one(".last").text:
+                    return None
+            raise DataNotFoundException(f"Data could not be found and a preview match was not determined. {trow.get_text()}")
 
-        data = self.result_data_re.match(result.text)
+        data = VolleyBallPage.result_data_re.match(result.text)
         if not data:
+            if "FFW" in result.text:
+                return ("FFW", "N/A", "N/A")
+            elif "FFL" in result.text:
+                return ("FFL", "N/A", "N/A")
             raise DataNotFoundException(f"Data could not be extracted {result.text}")
 
         match_result = data.group(1)
@@ -158,6 +175,7 @@ class VolleyBallPage:
                     return_data.append(self._format_match_TBD(our_team, other_team))
             except DataNotFoundException as dnfe:
                 print(dnfe)
+                print(self.url)
                 print("skipping...")
                 continue
         return return_data
@@ -196,7 +214,17 @@ def main():
     writer = DataWriter()
     with open(INPUT_FILE, 'r', encoding='utf8') as reader:
         for url in reader:
-            page = VolleyBallPage(url.strip())
+            url = url.strip()
+            try:
+                page = VolleyBallPage(url)
+            except ConnectionError as ce:
+                print(f"Website would not connect: {url}")
+                print(ce)
+                continue
+            except Timeout as te:
+                print(f"Timed out while trying to connect to website: {url}")
+                print(te)
+                continue
             for element in page.get_volleyball_data():
                 if isinstance(element, tuple):
                     scores.append(element)
@@ -209,13 +237,16 @@ def main():
 def test():
     URL = "https://www.maxpreps.com/print/schedule.aspx?schoolid=d2a54a52-b1ac-4588-98de-94edd98a7d85&ssid=3a7d2ebb-2ff5-4795-bdaa-58047958bbe9&print=1"
     URL2 = "https://www.maxpreps.com/print/schedule.aspx?schoolid=773627bf-68b2-4c1b-8e1f-d4a6d2513905&ssid=3a7d2ebb-2ff5-4795-bdaa-58047958bbe9&print=1"
-    page = VolleyBallPage(URL)
+    URL_3 = "https://www.maxpreps.com/print/schedule.aspx?schoolid=a08899b0-2df3-4c44-8225-c83b952f49da&ssid=3a7d2ebb-2ff5-4795-bdaa-58047958bbe9&print=1"
+    page = VolleyBallPage(URL_3)
     # print(get_volleyball_data(page))
     # for datapoint in page.get_volleyball_data():
     #     print(datapoint)
     writer = DataWriter()
     writer.add_volleyball_data(page.get_main_team_name(), page.get_volleyball_data())
     writer.save()
+
+
 
 if __name__ == "__main__":
     main()
