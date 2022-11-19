@@ -3,17 +3,19 @@ from bs4 import BeautifulSoup
 import requests
 from openpyxl import Workbook
 from datetime import date
-from dataclasses import dataclass
-from get_urls import get_volleyball_urls
 
+class DataNotFoundException(Exception):
+    pass
+
+INPUT_FILE = 'urls.txt'
 
 class VolleyBallPage:
     """Class to get data off a volleyball webpage
 
     Raises:
         TypeError: Couldn't find something
-        ValueError: Couldn't find something
-        ValueError: couldn't find something
+        DataNotFoundException: Couldn't find something
+        DataNotFoundException: couldn't find something
         TypeError: couldn't find something
         TypeError: couldn't find something
 
@@ -31,6 +33,9 @@ class VolleyBallPage:
     def _format_default(self, match_result, our_team, other_team, score1, score2):
         """
         Helper method to format a regular data row on the volleyball website
+
+        Raises:
+            TypeError: Match Result is not "W", "L", or "T"
         """
         if match_result == "W":
             our_score = max(score1, score2)
@@ -40,8 +45,12 @@ class VolleyBallPage:
             our_score = min(score1, score2)
             other_score = max(score1, score2)
             return (other_team, other_score, our_team, our_score)
+        elif match_result == "T":
+            our_score = min(score1, score2)
+            other_score = max(score1, score2)
+            return (other_team, other_score, our_team, our_score)
         else:
-            raise TypeError("Game result is not a win or a loss")
+            raise TypeError(f"Game result is not a win or a loss {match_result}")
 
     def _format_match_TBD(self, our_team, other_team):
         """Formats a match that is pending and has not currently happened
@@ -68,7 +77,7 @@ class VolleyBallPage:
         """Gets the name of the main team for tbe website
 
         Raises:
-            ValueError: Cannot find the name of the team on the website
+            DataNotFoundException: Cannot find the name of the team on the website
 
         Returns:
             str: Name of the team
@@ -78,7 +87,7 @@ class VolleyBallPage:
                 "(.*) Volleyball", self.soup.find(id="Team_highlight_info1_Header").text
             ).group(1)
         except AttributeError as a_e:
-            raise ValueError("Cannot find main team's name") from a_e
+            raise DataNotFoundException("Cannot find main team's name") from a_e
 
     def _get_other_team_name(self, trow):
         """Gets the name of the other team from a row
@@ -87,7 +96,7 @@ class VolleyBallPage:
             trow (Tag): A row tag from the volleyball website table
 
         Raises:
-            ValueError: Cannot find other team's name
+            DataNotFoundException: Cannot find other team's name
 
         Returns:
             str: Other team's name
@@ -95,7 +104,7 @@ class VolleyBallPage:
         try:
             return trow.select_one(".contest-type-indicator").find(text=True, recursive=False)
         except AttributeError as a_e:
-            raise ValueError("Cannot find other team's name") from a_e
+            raise DataNotFoundException("Cannot find other team's name") from a_e
 
     def _get_score_data(self, trow):
         """Gets the score data from a table row from the volleyball website
@@ -116,11 +125,11 @@ class VolleyBallPage:
             if "In Progress" in trow.select_one(".last").text or "Preview Match" in trow.select_one(".last").text:
                 return None
             else:
-                raise TypeError("Data could not be found")
+                raise DataNotFoundException(f"Data could not be found and a preview match was not determined. {trow.get_text()}")
 
         data = self.result_data_re.match(result.text)
         if not data:
-            raise TypeError("Data could not be extracted")
+            raise DataNotFoundException(f"Data could not be extracted {result.text}")
 
         match_result = data.group(1)
         score1 = int(data.group(2))
@@ -137,15 +146,20 @@ class VolleyBallPage:
         return_data = []
 
         for trow in self._get_table_rows():
-            other_team = self._get_other_team_name(trow)
-            row_data = self._get_score_data(trow)
-            if row_data is not None:
-                match_result, score1, score2 = row_data
-                return_data.append(
-                    self._format_default(match_result, our_team, other_team, score1, score2)
-                )
-            else:
-                return_data.append(self._format_match_TBD(our_team, other_team))
+            try:
+                other_team = self._get_other_team_name(trow)
+                row_data = self._get_score_data(trow)
+                if row_data is not None:
+                    match_result, score1, score2 = row_data
+                    return_data.append(
+                        self._format_default(match_result, our_team, other_team, score1, score2)
+                    )
+                else:
+                    return_data.append(self._format_match_TBD(our_team, other_team))
+            except DataNotFoundException as dnfe:
+                print(dnfe)
+                print("skipping...")
+                continue
         return return_data
     
 
@@ -178,15 +192,16 @@ class DataWriter:
 
 
 def main():
-    scores = set()
+    scores = []
     writer = DataWriter()
-    for url in get_volleyball_urls():
-        page = VolleyBallPage(url)
-        for element in page.get_volleyball_data():
-            if isinstance(element, tuple):
-                scores.add(element)
-            else:
-                print(f"invalid value added {element}")
+    with open(INPUT_FILE, 'r', encoding='utf8') as reader:
+        for url in reader:
+            page = VolleyBallPage(url.strip())
+            for element in page.get_volleyball_data():
+                if isinstance(element, tuple):
+                    scores.append(element)
+                else:
+                    print(f"invalid value added {element}")
     writer.add_volleyball_data("VolleyballData", scores)
     writer.save()
 
@@ -203,4 +218,4 @@ def test():
     writer.save()
 
 if __name__ == "__main__":
-    test()
+    main()
